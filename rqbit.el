@@ -270,7 +270,8 @@
                         (time-remaining-human
                           (cdr (assoc 'human-readable time-remaining)))
                         ;; (torrent-table (make-hash-table)))
-                         (torrent-table (gethash 'torrents rqbit--values (make-hash-table))))
+                         (torrent-table
+                          (gethash 'torrents rqbit--values (make-hash-table))))
                     ;; A torrent is a list: (
                     ;;   state: string
                     ;;   name: string,
