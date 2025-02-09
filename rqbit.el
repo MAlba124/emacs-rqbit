@@ -42,11 +42,11 @@
 
 (defun rqbit--display-stats (stats)
   (insert
-   "Stats: Download speed: "
+   (propertize "Download speed: " 'face 'font-lock-function-name-face)
    (gethash 'download-speed stats)
-   " Upload speed: "
+   (propertize " Upload speed: " 'face 'font-lock-function-name-face)
    (gethash 'upload-speed stats)
-   " Uptime: "
+   (propertize " Uptime: " 'face 'font-lock-function-name-face)
    (seconds-to-string (gethash 'uptime stats))))
 
 (defun rqbit--make-progress-bar (prefix progress)
@@ -58,35 +58,70 @@
          (filled (round (* progress width)))
          (empty (- width filled))
          (bar
-          (concat "[" (make-string filled rqbit--progress-bar-char)
-                  (make-string empty ?\s) "]")))
+          (concat (propertize "[" 'face 'font-lock-function-name-face)
+                  (make-string filled rqbit--progress-bar-char)
+                  (make-string empty ?\s)
+                  (propertize "]" 'face 'font-lock-function-name-face))))
     (concat prefix bar)))
 
 ;; (rqbit--make-progress-bar " 50% " 0.5)
 
 (defun rqbit--display-torrents (torrents)
   (maphash (lambda (id values)
-             (let* ((name (nth 0 values))
-                   (info-hash (nth 1 values))
-                   (progress-bytes (nth 2 values))
-                   (total-bytes (nth 3 values))
-                   (progress-percent (/ (float progress-bytes) total-bytes)))
-             (insert name)
+             (let* ((state (nth 0 values))
+                   (name (nth 1 values))
+                   (info-hash (nth 2 values))
+                   (progress-bytes (nth 3 values))
+                   (total-bytes (nth 4 values))
+                   (download-speed (nth 5 values))
+                   (upload-speed (nth 6 values))
+                   (time-remaining (nth 7 values))
+                   (progress-percent (/ (float progress-bytes) total-bytes))
+                   (label
+                    (format "%3d%% %s%s%s" (round (* progress-percent 100))
+                            (file-size-human-readable progress-bytes)
+                            (propertize "/" 'face 'font-lock-function-name-face)
+                            (file-size-human-readable total-bytes))))
+             (insert (propertize name 'face 'font-lock-type-face))
              (newline)
+             (if (string= state "paused")
+                 (setq label
+                       (concat label
+                               (propertize " idle" 'face 'font-lock-comment-face)))
+               (progn
+                (when download-speed
+                  (setq label
+                        (concat label
+                                (propertize " Down: " 'face
+                                            'font-lock-function-name-face)
+                                download-speed)))
+                (when upload-speed
+                  (setq label
+                        (concat label
+                                (propertize " Up: " 'face
+                                            'font-lock-function-name-face)
+                                upload-speed)))
+                (when time-remaining
+                  (setq label
+                        (concat label
+                                (propertize " ETA: " 'face
+                                            'font-lock-function-name-face)
+                                time-remaining)))))
              (insert
-              (rqbit--make-progress-bar
-               (format "%3d%% " (round (* progress-percent 100)))
-               progress-percent))
-             (newline)))
+              (rqbit--make-progress-bar (concat label " ") progress-percent))
+             (newline 2)))
            torrents))
+
+(point-marker)
 
 (defun rqbit--display ()
   (with-current-buffer (rqbit--get-buffer)
     (read-only-mode -1)
-    (erase-buffer)
     ;; (message "%S" rqbit--values)
-    (let ((stats (gethash 'stats rqbit--values))
+    (let ((marker (point))
+          (stats (gethash 'stats rqbit--values))
           (torrents (gethash 'torrents rqbit--values)))
+      (erase-buffer)
       (if stats
           (rqbit--display-stats stats)
         (insert "Stats: n/a"))
@@ -95,7 +130,11 @@
           (rqbit--display-torrents torrents)
         (progn
           (insert "Torrents: n/a")
-          (newline))))
+          (newline)))
+      (goto-char marker)
+      ;; TODO: fix
+      (when hl-line-mode
+        (hl-line-highlight)))
     (read-only-mode 1)))
 
 ;; (rqbit--display)
@@ -171,9 +210,23 @@
     ;; "uploaded_bytes" : int
     ;; }
    (cl-function (lambda (&key data &allow-other-keys)
-                  (let ((state (cdr (assoc 'state data)))
+                  (let* ((state (cdr (assoc 'state data)))
                         (progress-bytes (cdr (assoc 'progress_bytes data)))
                         (total-bytes (cdr (assoc 'total_bytes data)))
+                        (live (cdr (assoc 'live data)))
+                        ;; -
+                        (download-speed
+                        (cdr (assoc 'download_speed live)))
+                        (upload-speed (cdr (assoc 'upload_speed live)))
+                        (download-speed-human
+                        (cdr (assoc 'human_readable download-speed)))
+                        (upload-speed-human
+                        (cdr (assoc 'human_readable upload-speed)))
+                        (time-remaining
+                        (cdr (assoc 'time_remaining live)))
+                        (time-remaining-human
+                        (cdr (assoc 'human-readable time-remaining)))
+                        ;; -
                         (torrent-table
                          (gethash 'torrents rqbit--values (make-hash-table))))
                     ;; A torrent is a list: (
@@ -187,28 +240,35 @@
                     ;;   upload-speed: string,
                     ;;   time-remaining: optional string,
                     ;; )
-                    (if (string= state "live")
-                        (let* ((live (cdr (assoc 'live data)))
-                               (download-speed
-                                (cdr (assoc 'download_speed live)))
-                               (upload-speed (cdr (assoc 'upload_speed live)))
-                               (download-speed-human
-                                (cdr (assoc 'human_readable download-speed)))
-                               (upload-speed-human
-                                (cdr (assoc 'human_readable upload-speed)))
-                               (time-remaining
-                                (cdr (assoc 'time_remaining live)))
-                               (time-remaining-human
-                                (cdr (assoc 'human-readable time-remaining))))
-                          (puthash id
-                                   (list state name info-hash progress-bytes
-                                         total-bytes download-speed-human
-                                         upload-speed-human time-remaining-human)
-                                   torrent-table))
-                      (puthash id
-                               (list state name info-hash progress-bytes
-                                     total-bytes)
-                               torrent-table))
+
+                    ;; (if (string= state "live")
+                    ;;     (let* ((live (cdr (assoc 'live data)))
+                    ;;            (download-speed
+                    ;;             (cdr (assoc 'download_speed live)))
+                    ;;            (upload-speed (cdr (assoc 'upload_speed live)))
+                    ;;            (download-speed-human
+                    ;;             (cdr (assoc 'human_readable download-speed)))
+                    ;;            (upload-speed-human
+                    ;;             (cdr (assoc 'human_readable upload-speed)))
+                    ;;            (time-remaining
+                    ;;             (cdr (assoc 'time_remaining live)))
+                    ;;            (time-remaining-human
+                    ;;             (cdr (assoc 'human-readable time-remaining))))
+                    ;;       (puthash id
+                    ;;                (list state name info-hash progress-bytes
+                    ;;                      total-bytes download-speed-human
+                    ;;                      upload-speed-human time-remaining-human)
+                    ;;                torrent-table))
+                    ;;   (puthash id
+                    ;;            (list state name info-hash progress-bytes
+                    ;;                  total-bytes)
+                    ;;            torrent-table))
+
+                    (puthash id
+                             (list state name info-hash progress-bytes
+                                   total-bytes download-speed-human
+                                   upload-speed-human time-remaining-human)
+                             torrent-table)
                     ;; (message "State: %S" state)
                     (puthash 'torrents torrent-table rqbit--values))
                   (rqbit--display)))
