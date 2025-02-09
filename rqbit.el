@@ -35,10 +35,9 @@
 (setq rqbit--values (make-hash-table))
 
 (defun rqbit--get-buffer ()
-  (let ((buffer (get-buffer rqbit--buffer-name)))
-    (if buffer
-        buffer
-      (generate-new-buffer rqbit--buffer-name))))
+  (with-current-buffer (get-buffer-create rqbit--buffer-name)
+    (rqbit-mode)
+    (current-buffer)))
 
 (defun rqbit--display-stats (stats)
   (insert
@@ -48,6 +47,24 @@
    (gethash 'upload-speed stats)
    (propertize " Uptime: " 'face 'font-lock-function-name-face)
    (seconds-to-string (gethash 'uptime stats))))
+
+(defun rqbit--make-get-request (endpoint on-success on-error)
+  (request
+    (concat rqbit--base-api-url endpoint)
+    :type
+    "GET"
+    :parser 'json-read
+    :success on-success
+    :error on-error))
+
+(defun rqbit--make-post-request (endpoint on-success on-error)
+  (request
+    (concat rqbit--base-api-url endpoint)
+    :type
+    "POST"
+    :parser 'json-read
+    :success on-success
+    :error on-error))
 
 (defun rqbit--make-progress-bar (prefix progress)
   (let*
@@ -64,7 +81,17 @@
                   (propertize "]" 'face 'font-lock-function-name-face))))
     (concat prefix bar)))
 
-;; (rqbit--make-progress-bar " 50% " 0.5)
+(defun rqbit--resume-download (id)
+  (rqbit--make-post-request
+    (format "/torrents/%s/start" id)
+    (cl-function (lambda (&key data &allow-other-keys)))
+    (cl-function (lambda (&key data &allow-other-keys)))))
+
+(defun rqbit--pause-download (id)
+  (rqbit--make-post-request
+    (format "/torrents/%s/pause" id)
+    (cl-function (lambda (&key data &allow-other-keys)))
+    (cl-function (lambda (&key data &allow-other-keys)))))
 
 (defun rqbit--display-torrents (torrents)
   (maphash (lambda (id values)
@@ -82,7 +109,14 @@
                             (file-size-human-readable progress-bytes)
                             (propertize "/" 'face 'font-lock-function-name-face)
                             (file-size-human-readable total-bytes))))
-             (insert (propertize name 'face 'font-lock-type-face))
+               (if (string= state "paused")
+                   (insert-text-button "[Resume]"
+                                       'action (lambda (_) (rqbit--resume-download id))
+                                       'help-echo "Resume download")
+                   (insert-text-button "[Pause]"
+                                       'action (lambda (_) (rqbit--pause-download id))
+                                       'help-echo "Pause download"))
+             (insert " " (propertize name 'face 'font-lock-type-face))
              (newline)
              (if (string= state "paused")
                  (setq label
@@ -117,7 +151,6 @@
 (defun rqbit--display ()
   (with-current-buffer (rqbit--get-buffer)
     (read-only-mode -1)
-    ;; (message "%S" rqbit--values)
     (let ((marker (point))
           (stats (gethash 'stats rqbit--values))
           (torrents (gethash 'torrents rqbit--values)))
@@ -132,21 +165,13 @@
           (insert "Torrents: n/a")
           (newline)))
       (goto-char marker)
-      ;; TODO: fix
+      (when global-hl-line-mode
+        (global-hl-line-highlight))
       (when hl-line-mode
         (hl-line-highlight)))
     (read-only-mode 1)))
 
 ;; (rqbit--display)
-
-(defun rqbit--make-get-request (endpoint on-success on-error)
-  (request
-    (concat rqbit--base-api-url endpoint)
-    :type
-    "GET"
-    :parser 'json-read
-    :success on-success
-    :error on-error))
 
 (defun rqbit--get-stats ()
   (rqbit--make-get-request
@@ -240,36 +265,11 @@
                     ;;   upload-speed: string,
                     ;;   time-remaining: optional string,
                     ;; )
-
-                    ;; (if (string= state "live")
-                    ;;     (let* ((live (cdr (assoc 'live data)))
-                    ;;            (download-speed
-                    ;;             (cdr (assoc 'download_speed live)))
-                    ;;            (upload-speed (cdr (assoc 'upload_speed live)))
-                    ;;            (download-speed-human
-                    ;;             (cdr (assoc 'human_readable download-speed)))
-                    ;;            (upload-speed-human
-                    ;;             (cdr (assoc 'human_readable upload-speed)))
-                    ;;            (time-remaining
-                    ;;             (cdr (assoc 'time_remaining live)))
-                    ;;            (time-remaining-human
-                    ;;             (cdr (assoc 'human-readable time-remaining))))
-                    ;;       (puthash id
-                    ;;                (list state name info-hash progress-bytes
-                    ;;                      total-bytes download-speed-human
-                    ;;                      upload-speed-human time-remaining-human)
-                    ;;                torrent-table))
-                    ;;   (puthash id
-                    ;;            (list state name info-hash progress-bytes
-                    ;;                  total-bytes)
-                    ;;            torrent-table))
-
                     (puthash id
                              (list state name info-hash progress-bytes
                                    total-bytes download-speed-human
                                    upload-speed-human time-remaining-human)
                              torrent-table)
-                    ;; (message "State: %S" state)
                     (puthash 'torrents torrent-table rqbit--values))
                   (rqbit--display)))
    (cl-function (lambda (&key error-thrown &allow-other-keys)
@@ -307,15 +307,33 @@
   (rqbit--get-stats)
   (rqbit--get-torrents))
 
+(defun rqbit-test ()
+  (interactive)
+  (message "This is a test!"))
+
+(defvar rqbit-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-t") 'rqbit-test)
+    map)
+  "Keymap for `rqbit-mode'")
+
+(define-derived-mode rqbit-mode prog-mode
+  "rqbit"
+  "Major mode for rqbit bittorrent client"
+  (use-local-map rqbit-mode-map))
+
 (defun rqbit ()
   (interactive)
   (let ((buffer (get-buffer rqbit--buffer-name)))
     (if buffer
         ;; If the buffer is open, we are receiving updates (no need to setup the timer again),
         ;; so we just switch to it
-        (switch-to-buffer (rqbit--get-buffer))
+        (progn
+          (switch-to-buffer (rqbit--get-buffer))
+          (rqbit-mode))
       (progn
         (switch-to-buffer (rqbit--get-buffer))
+        (rqbit-mode)
         ;; Setup a timer to run the update function every second
         (setq update-timer
               (run-at-time nil rqbit-update-interval #'rqbit--update))
