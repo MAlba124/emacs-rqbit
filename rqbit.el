@@ -14,8 +14,6 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-;; (setq lexical-binding t)
-
 (use-package request :ensure t)
 
 (require 'request)
@@ -93,6 +91,23 @@
     (cl-function (lambda (&key data &allow-other-keys)))
     (cl-function (lambda (&key data &allow-other-keys)))))
 
+(defun rqbit--remove-download (id)
+  (let ((delete (y-or-n-p "Delete files? "))
+        (torrents-table (gethash 'torrents rqbit--values (make-hash-table))))
+    (remhash id torrents-table)
+    (puthash 'torrents torrents-table rqbit--values)
+    (if delete
+        (rqbit--make-post-request (format "/torrents/%s/delete" id)
+                                  (cl-function
+                                   (lambda (&key data &allow-other-keys)))
+                                  (cl-function
+                                   (lambda (&key data &allow-other-keys))))
+      (rqbit--make-post-request (format "/torrents/%s/forget" id)
+                                (cl-function
+                                 (lambda (&key data &allow-other-keys)))
+                                (cl-function
+                                 (lambda (&key data &allow-other-keys)))))))
+
 (defun rqbit--display-torrents (torrents)
   (maphash (lambda (id values)
              (let* ((state (nth 0 values))
@@ -111,11 +126,17 @@
                             (file-size-human-readable total-bytes))))
                (if (string= state "paused")
                    (insert-text-button "[Resume]"
-                                       'action (lambda (_) (rqbit--resume-download id))
+                                       'action
+                                       (lambda (_) (rqbit--resume-download id))
                                        'help-echo "Resume download")
                    (insert-text-button "[Pause]"
-                                       'action (lambda (_) (rqbit--pause-download id))
+                                       'action
+                                       (lambda (_) (rqbit--pause-download id))
                                        'help-echo "Pause download"))
+               (insert " ")
+               (insert-text-button "[Remove]" 'action
+                                   (lambda (_) (rqbit--remove-download id))
+                                   'help-echo "Remove a download")
              (insert " " (propertize name 'face 'font-lock-type-face))
              (newline)
              (if (string= state "paused")
@@ -145,8 +166,6 @@
               (rqbit--make-progress-bar (concat label " ") progress-percent))
              (newline 2)))
            torrents))
-
-(point-marker)
 
 (defun rqbit--display ()
   (with-current-buffer (rqbit--get-buffer)
@@ -239,21 +258,19 @@
                         (progress-bytes (cdr (assoc 'progress_bytes data)))
                         (total-bytes (cdr (assoc 'total_bytes data)))
                         (live (cdr (assoc 'live data)))
-                        ;; -
                         (download-speed
-                        (cdr (assoc 'download_speed live)))
+                          (cdr (assoc 'download_speed live)))
                         (upload-speed (cdr (assoc 'upload_speed live)))
                         (download-speed-human
-                        (cdr (assoc 'human_readable download-speed)))
+                          (cdr (assoc 'human_readable download-speed)))
                         (upload-speed-human
-                        (cdr (assoc 'human_readable upload-speed)))
+                          (cdr (assoc 'human_readable upload-speed)))
                         (time-remaining
-                        (cdr (assoc 'time_remaining live)))
+                          (cdr (assoc 'time_remaining live)))
                         (time-remaining-human
-                        (cdr (assoc 'human-readable time-remaining)))
-                        ;; -
-                        (torrent-table
-                         (gethash 'torrents rqbit--values (make-hash-table))))
+                          (cdr (assoc 'human-readable time-remaining)))
+                        ;; (torrent-table (make-hash-table)))
+                         (torrent-table (gethash 'torrents rqbit--values (make-hash-table))))
                     ;; A torrent is a list: (
                     ;;   state: string
                     ;;   name: string,
@@ -307,13 +324,17 @@
   (rqbit--get-stats)
   (rqbit--get-torrents))
 
-(defun rqbit-test ()
-  (interactive)
-  (message "This is a test!"))
+(defun rqbit-add(magnet-link)
+  (interactive "sMagnet: ")
+  (request
+    (concat rqbit--base-api-url "/torrents")
+  :type
+  "POST"
+  :data magnet-link))
 
 (defvar rqbit-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-t") 'rqbit-test)
+    (define-key map (kbd "C-c C-a") 'rqbit-add)
     map)
   "Keymap for `rqbit-mode'")
 
