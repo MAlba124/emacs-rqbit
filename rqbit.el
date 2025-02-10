@@ -179,8 +179,6 @@
         (hl-line-highlight)))
     (read-only-mode 1)))
 
-;; (rqbit--display)
-
 (defun rqbit--get-stats ()
   (rqbit--make-get-request
    "/stats"
@@ -282,8 +280,6 @@
    (cl-function (lambda (&key error-thrown &allow-other-keys)
                   (message ("Error: %S" error-thrown))))))
 
-;; (rqbit--get-torrent-stats 0 "test" "test")
-
 (defun rqbit--get-torrents ()
   (rqbit--make-get-request
    "/torrents"
@@ -307,8 +303,6 @@
                       (rqbit--get-torrent-stats id name info-hash))))))
    (cl-function (lambda (&key error-thrown &allow-other-keys)
                   (message "Error: %S" error-thrown)))))
-
-;; (rqbit--get-torrents)
 
 (defun rqbit--update ()
   (rqbit--get-stats)
