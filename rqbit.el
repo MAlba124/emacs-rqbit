@@ -55,7 +55,7 @@
     :success on-success
     :error on-error))
 
-(defun rqbit--make-post-request (endpoint on-success on-error)
+(defun rqbit--make-post-request (endpoint &optional on-success on-error)
   (request
     (concat rqbit--base-api-url endpoint)
     :type
@@ -81,15 +81,11 @@
 
 (defun rqbit--resume-download (id)
   (rqbit--make-post-request
-    (format "/torrents/%s/start" id)
-    (cl-function (lambda (&key data &allow-other-keys)))
-    (cl-function (lambda (&key data &allow-other-keys)))))
+    (format "/torrents/%s/start" id)))
 
 (defun rqbit--pause-download (id)
   (rqbit--make-post-request
-    (format "/torrents/%s/pause" id)
-    (cl-function (lambda (&key data &allow-other-keys)))
-    (cl-function (lambda (&key data &allow-other-keys)))))
+    (format "/torrents/%s/pause" id)))
 
 (defun rqbit--remove-download (id)
   (let ((delete (y-or-n-p "Delete files? "))
@@ -97,16 +93,9 @@
     (remhash id torrents-table)
     (puthash 'torrents torrents-table rqbit--values)
     (if delete
-        (rqbit--make-post-request (format "/torrents/%s/delete" id)
-                                  (cl-function
-                                   (lambda (&key data &allow-other-keys)))
-                                  (cl-function
-                                   (lambda (&key data &allow-other-keys))))
-      (rqbit--make-post-request (format "/torrents/%s/forget" id)
-                                (cl-function
-                                 (lambda (&key data &allow-other-keys)))
-                                (cl-function
-                                 (lambda (&key data &allow-other-keys)))))))
+        (rqbit--make-post-request (format "/torrents/%s/delete" id))
+      (rqbit--make-post-request (format "/torrents/%s/forget" id))
+    (rqbit--update))))
 
 (defun rqbit--display-torrents (torrents)
   (maphash (lambda (id values)
